@@ -52,6 +52,8 @@ SENTENCES = [
     "Please read out the last four digits of the reference number on your screen.",
     "The delivery should arrive between nine thirty and eleven on Saturday morning.",
     "Are you sure the cable is plugged in properly? Sometimes the connector comes loose.",
+    "Thank You.",
+    "Call me Back.",	
 ]
 
 ACOUSTIC = slice(0, 128)
