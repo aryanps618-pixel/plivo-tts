@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Voice Cloning Summary</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; line-height: 1.6; }
+  h1 { font-size: 1.4em; }
+  h2 { font-size: 1.05em; margin-top: 1.6em; }
+  p { margin: 0.8em 0; }
+</style>
+</head>
+<body>
+
+<h1>Voice cloning summary</h1>
+
+<p>Task was to find a style tensor for Kokoro that makes it sound like the target speaker, without touching the model weights. Started from the stock voice ranking, then searched.</p>
+
+<h2>Result</h2>
+<p>Baseline (best blend of stock voices) scored 0.6252. First search run got to 0.6495. Second search run got to 0.6750, which is the final submitted result. That's about 0.05 above baseline. Not huge, but consistent across two runs and it holds up on listening, not just the score.</p>
+
+<h2>What I found in the Kokoro source</h2>
+<p>Before writing the search I checked model.py and pipeline.py instead of guessing at the tensor layout. ref_s[:, :128] goes to the decoder, which is the timbre/identity half and the part Resemblyzer is actually scoring. ref_s[:, 128:] goes to the duration/pitch predictor, so messing with it risks intelligibility rather than just changing how it sounds. Synthesis only ever reads one row out of the 510-row tensor per sentence, picked by phoneme count, so most of the tensor is never touched by any given fitness sentence. That last point is basically the whole reason the naive random-walk approach in the skeleton doesn't generalize — it perturbs all 510 rows equally, but a held-out sentence of a different length will hit rows that never got optimized at all.</p>
+
+<h2>How the search works</h2>
+<p>It only perturbs the rows actually used by the fitness sentences, plus a small buffer of neighboring rows, instead of the whole tensor. It uses different step sizes for the two halves, bigger moves on the timbre half and smaller, more careful moves on the duration/pitch half. Fitness isn't just similarity — it's similarity averaged over a few sentences, plus a bonus if the candidate sounds like the same person across sentences rather than just getting lucky on one, minus a penalty for spectral flatness, silence, or weird duration. Those are cheap DSP checks with no extra model, so it stays inside the Resemblyzer-only rule. Step size adapts, shrinking if too many candidates get rejected and growing if it's accepting often, and repeated tensors get cached so it isn't resynthesizing the same candidate twice.</p>
+
+<h2>Runs</h2>
+<p>Run 0 was the baseline: ranked all 54 stock voices. Top 5 were a mix of English, Mandarin, Italian, Hindi, and Japanese speakers, which says Resemblyzer is picking up on raw vocal timbre rather than accent. Best blend scored 0.6252.</p>
+<p>Run 1 did 150 iterations, 11 accepted, and only touched 20 of 510 rows since the 5 fitness sentences were fairly similar in length. Similarity came out to 0.6495. On listening, pitch was close to the target but noticeably softer and breathier than the reference.</p>
+<p>Run 2 added a couple of shorter and longer sentences to widen row coverage to 29 of 510, restarted from Run 1's tensor with the step size bumped back up since it had decayed to about 0.015 by the end of Run 1. 100 more iterations got it to 0.6750, which is the submitted voice.pt.</p>
+
+<h2>Why it plateaued</h2>
+<p>Two reasons, both from the row-indexing behavior above. First, the search can only improve rows that its fitness sentences actually exercise, and with 510 possible rows and only five to eight sentences to test with, coverage stays narrow no matter how long the search runs. Held-out grading sentences outside that length range get scored on rows that were never touched. Second, the adaptive step size shrinks whenever it stops accepting improvements, which is good for fine-tuning but means the search settles into whatever local optimum it finds near the starting point instead of exploring more broadly. Run 2 only improved further because I manually reset the step size and widened the sentence set, not because the original run would have kept climbing on its own.</p>
+
+</body>
+</html>
